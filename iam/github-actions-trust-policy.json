@@ -11,8 +11,8 @@
         "StringEquals": {
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
           "token.actions.githubusercontent.com:sub": [
-            "repo:cloudadhar@296502571/cloudadhar-containers-demo@1365291729:environment:test",
-            "repo:cloudadhar@296502571/cloudadhar-containers-demo@1365291729:environment:live"
+            "repo:cloudadhar/cloudadhar-containers-demo:environment:test",
+            "repo:cloudadhar/cloudadhar-containers-demo:environment:live"
           ]
         }
       }

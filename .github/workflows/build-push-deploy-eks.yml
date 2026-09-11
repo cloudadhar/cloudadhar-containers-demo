@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - test
+      - main
 
   workflow_dispatch:
     inputs:
@@ -46,10 +47,6 @@ jobs:
 
     environment:
       name: ${{ github.event_name == 'workflow_dispatch' && inputs.target_environment || (github.ref_name == 'main' && 'live' || 'test') }}
-
-    env:
-      AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN || secrets.AWS_ROLE_ARN }}
-      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID || secrets.AWS_ACCOUNT_ID }}
 
     outputs:
       image_tag: ${{ steps.build.outputs.image_tag }}
@@ -209,6 +206,72 @@ jobs:
             --services "${ECS_SERVICE_NAME}" \
             --query 'services[0].deployments[*].{Status:status,TaskDefinition:taskDefinition,Running:runningCount,Desired:desiredCount}' \
             --output table
+
+  deploy-to-ecs:
+    name: Deploy image to Amazon ECS
+    needs: build-and-push
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_to_ecs == true }}
+    runs-on: ubuntu-latest
+
+    environment:
+      name: ${{ inputs.target_environment }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Validate ECS configuration
+        run: |
+          test -n "${{ vars.ECS_CLUSTER_NAME }}" || {
+            echo "::error::ECS_CLUSTER_NAME is not configured."
+            exit 1
+          }
+
+          test -n "${{ vars.ECS_SERVICE_NAME }}" || {
+            echo "::error::ECS_SERVICE_NAME is not configured."
+            exit 1
+          }
+
+          test -n "${{ vars.ECS_TASK_DEFINITION }}" || {
+            echo "::error::ECS_TASK_DEFINITION is not configured."
+            exit 1
+          }
+
+          test -n "${{ vars.ECS_CONTAINER_NAME }}" || {
+            echo "::error::ECS_CONTAINER_NAME is not configured."
+            exit 1
+          }
+
+      - name: Configure temporary AWS credentials through OIDC
+        uses: aws-actions/configure-aws-credentials@v6.2.4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+          mask-aws-account-id: true
+
+      - name: Download current ECS task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "${{ vars.ECS_TASK_DEFINITION }}" \
+            --query taskDefinition \
+            > task-definition.json
+
+      - name: Insert new image into task definition
+        id: render-ecs-task
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ vars.ECS_CONTAINER_NAME }}
+          image: ${{ needs.build-and-push.outputs.image_uri }}
+
+      - name: Deploy new task definition to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render-ecs-task.outputs.task-definition }}
+          cluster: ${{ vars.ECS_CLUSTER_NAME }}
+          service: ${{ vars.ECS_SERVICE_NAME }}
+          wait-for-service-stability: true
 
   deploy-to-eks:
     name: Deploy image to Amazon EKS
