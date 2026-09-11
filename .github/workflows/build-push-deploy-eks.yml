@@ -44,7 +44,7 @@ jobs:
     timeout-minutes: 20
 
     environment:
-      name: ${{ github.event_name == 'workflow_dispatch' && inputs.target_environment || (github.ref_name == 'main' && 'live' || 'test') }}
+      name: ${{ github.event_name == 'workflow_dispatch' && inputs.target_environment || (github.ref_name == 'main' && 'main' || 'test') }}
 
     env:
       AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
@@ -60,14 +60,14 @@ jobs:
 
       - name: Validate branch and environment mapping
         env:
-          SELECTED_ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && inputs.target_environment || (github.ref_name == 'main' && 'live' || 'test') }}
+          SELECTED_ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && inputs.target_environment || (github.ref_name == 'main' && 'main' || 'test') }}
         run: |
           case "${GITHUB_REF_NAME}:${SELECTED_ENVIRONMENT}" in
-            test:test|main:live)
+            test:test|main:main)
               echo "Branch and environment mapping is valid."
               ;;
             *)
-              echo "::error::Use branch test with environment test, or branch main with environment live."
+              echo "::error::Use branch test with environment test, or branch main with environment main."
               exit 1
               ;;
           esac
