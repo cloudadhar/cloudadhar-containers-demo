@@ -3,6 +3,7 @@ name: Build, push to ECR, and deploy to EKS
 on:
   push:
     branches:
+      - test
       - main
   workflow_dispatch:
     inputs:
@@ -36,7 +37,7 @@ jobs:
     name: Build and push image
     runs-on: ubuntu-latest
     environment:
-      name: ${{ github.event_name == 'workflow_dispatch' && inputs.target_environment || 'test' }}
+      name: ${{ github.event_name == 'workflow_dispatch' && inputs.target_environment || (github.ref_name == 'main' && 'live' || 'test') }}
     outputs:
       image_uri: ${{ steps.build.outputs.image_uri }}
       image_tag: ${{ steps.build.outputs.image_tag }}

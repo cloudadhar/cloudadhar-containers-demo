@@ -148,7 +148,7 @@ Repeat this setup in each AWS account:
 6. Replace AWS_ACCOUNT_ID_PLACEHOLDER in iam/github-actions-trust-policy.json and use it as the role trust policy.
 7. Replace the account and cluster placeholders in iam/github-actions-permissions-policy.json and attach it as an inline permissions policy.
 
-This repository uses GitHub's immutable OIDC subject format because it was created after July 15, 2026. The owner and repository IDs in the included trust policy identify this repository specifically.
+The trust policy restricts GitHub's OIDC subject to this repository's `test` and `live` environments. If the repository is renamed or transferred, update the repository name in the trust policy subjects.
 
 ### Authorize the role inside EKS
 
@@ -163,7 +163,8 @@ For a short lab, cluster administrator access is convenient. In production, rest
 
 ### Workflow behavior
 
-- A push to main builds and pushes the image to the **test** account only.
+- A push to test builds and pushes the image to the **test** account.
+- A push to main builds and pushes the image to the **live** account.
 - **Actions -> Build, push to ECR, and deploy to EKS -> Run workflow** lets you choose test or live.
 - Leave **Deploy the new image to EKS** disabled until the EKS cluster and access entry exist.
 - Enable it to update the Kubernetes Deployment and wait for a successful rollout.
