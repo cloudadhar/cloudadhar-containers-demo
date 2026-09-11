@@ -3,7 +3,6 @@ name: Build, push to ECR, and deploy to ECS or EKS
 on:
   push:
     branches:
-      - main
       - test
 
   workflow_dispatch:
@@ -113,11 +112,11 @@ jobs:
   deploy-to-ecs:
     name: Deploy image to Amazon ECS
     needs: build-and-push
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_to_ecs == true }}
+    if: ${{ (github.event_name == 'push' && github.ref_name == 'test') || (github.event_name == 'workflow_dispatch' && inputs.deploy_to_ecs == true) }}
     runs-on: ubuntu-latest
 
     environment:
-      name: ${{ inputs.target_environment }}
+      name: ${{ github.event_name == 'workflow_dispatch' && inputs.target_environment || 'test' }}
 
     env:
       AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN || secrets.AWS_ROLE_ARN }}
