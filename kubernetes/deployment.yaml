@@ -1,0 +1,58 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cloudadhar
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudadhar-web
+  namespace: cloudadhar
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: cloudadhar-web
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: cloudadhar-web
+    spec:
+      containers:
+        - name: web
+          image: IMAGE_URI_PLACEHOLDER
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: PLATFORM
+              value: Amazon EKS
+            - name: APP_VERSION
+              value: APP_VERSION_PLACEHOLDER
+            - name: AWS_REGION
+              value: ap-south-1
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10

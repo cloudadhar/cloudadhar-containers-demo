@@ -1,0 +1,131 @@
+name: Build, push to ECR, and deploy to EKS
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      target_environment:
+        description: AWS account/environment to use
+        required: true
+        default: test
+        type: choice
+        options:
+          - test
+          - live
+      deploy_to_eks:
+        description: Deploy the new image to EKS
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REPOSITORY: cloudadhar-containers-demo
+  K8S_NAMESPACE: cloudadhar
+  K8S_DEPLOYMENT: cloudadhar-web
+  K8S_CONTAINER: web
+
+jobs:
+  build-and-push:
+    name: Build and push image
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.event_name == 'workflow_dispatch' && inputs.target_environment || 'test' }}
+    outputs:
+      image_uri: ${{ steps.build.outputs.image_uri }}
+      image_tag: ${{ steps.build.outputs.image_tag }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Configure temporary AWS credentials through OIDC
+        uses: aws-actions/configure-aws-credentials@v6.2.4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+          mask-aws-account-id: true
+
+      - name: Sign in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push commit and latest tags
+        id: build
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          IMAGE_TAG="${GITHUB_SHA::12}"
+          IMAGE_URI="${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+          LATEST_URI="${ECR_REGISTRY}/${ECR_REPOSITORY}:latest"
+
+          docker build \
+            --build-arg APP_VERSION="${IMAGE_TAG}" \
+            --tag "${IMAGE_URI}" \
+            --tag "${LATEST_URI}" \
+            .
+
+          docker push "${IMAGE_URI}"
+          docker push "${LATEST_URI}"
+
+          echo "image_uri=${IMAGE_URI}" >> "${GITHUB_OUTPUT}"
+          echo "image_tag=${IMAGE_TAG}" >> "${GITHUB_OUTPUT}"
+
+      - name: Show published image
+        run: |
+          echo "Published image: ${{ steps.build.outputs.image_uri }}"
+
+  deploy-to-eks:
+    name: Deploy image to Amazon EKS
+    needs: build-and-push
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_to_eks == true }}
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.target_environment }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Configure temporary AWS credentials through OIDC
+        uses: aws-actions/configure-aws-credentials@v6.2.4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+          mask-aws-account-id: true
+
+      - name: Configure kubectl
+        run: |
+          aws eks update-kubeconfig \
+            --region "${AWS_REGION}" \
+            --name "${{ vars.EKS_CLUSTER_NAME }}"
+
+      - name: Apply Kubernetes resources
+        env:
+          IMAGE_URI: ${{ needs.build-and-push.outputs.image_uri }}
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+        run: |
+          sed \
+            -e "s|IMAGE_URI_PLACEHOLDER|${IMAGE_URI}|g" \
+            -e "s|APP_VERSION_PLACEHOLDER|${IMAGE_TAG}|g" \
+            kubernetes/deployment.yaml | kubectl apply -f -
+
+          kubectl apply -f kubernetes/service.yaml
+
+          kubectl rollout status \
+            deployment/"${K8S_DEPLOYMENT}" \
+            --namespace "${K8S_NAMESPACE}" \
+            --timeout 5m
+
+          kubectl get deployments,pods,services \
+            --namespace "${K8S_NAMESPACE}" \
+            --output wide
+

@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloudadhar-web
+  namespace: cloudadhar
+spec:
+  type: ClusterIP
+  selector:
+    app: cloudadhar-web
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+
