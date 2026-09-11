@@ -3,7 +3,6 @@ name: Build, push to ECR, and deploy to ECS or EKS
 on:
   push:
     branches:
-      - test
       - main
 
   workflow_dispatch:
@@ -14,8 +13,7 @@ on:
         default: test
         type: choice
         options:
-          - test
-          - live
+          - main
 
       deploy_to_ecs:
         description: Deploy the new image to ECS Fargate
