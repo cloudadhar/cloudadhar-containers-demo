@@ -37,6 +37,9 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: ${{ github.event_name == 'workflow_dispatch' && inputs.target_environment || 'test' }}
+    env:
+      AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN || secrets.AWS_ROLE_ARN }}
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID || secrets.AWS_ACCOUNT_ID }}
     outputs:
       image_uri: ${{ steps.build.outputs.image_uri }}
       image_tag: ${{ steps.build.outputs.image_tag }}
@@ -45,12 +48,24 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v7
 
+      - name: Validate AWS configuration
+        run: |
+          test -n "${AWS_ROLE_ARN}" || {
+            echo "::error::AWS_ROLE_ARN is not configured for the selected GitHub environment."
+            exit 1
+          }
+          test -n "${AWS_ACCOUNT_ID}" || {
+            echo "::error::AWS_ACCOUNT_ID is not configured for the selected GitHub environment."
+            exit 1
+          }
+          echo "Using AWS role ${AWS_ROLE_ARN} in account ${AWS_ACCOUNT_ID}."
+
       - name: Configure temporary AWS credentials through OIDC
         uses: aws-actions/configure-aws-credentials@v6.2.4
         with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+          allowed-account-ids: ${{ env.AWS_ACCOUNT_ID }}
           mask-aws-account-id: true
 
       - name: Sign in to Amazon ECR
@@ -89,6 +104,10 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: ${{ inputs.target_environment }}
+    env:
+      AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN || secrets.AWS_ROLE_ARN }}
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID || secrets.AWS_ACCOUNT_ID }}
+      EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME || secrets.EKS_CLUSTER_NAME }}
 
     steps:
       - name: Check out repository
@@ -97,16 +116,16 @@ jobs:
       - name: Configure temporary AWS credentials through OIDC
         uses: aws-actions/configure-aws-credentials@v6.2.4
         with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+          allowed-account-ids: ${{ env.AWS_ACCOUNT_ID }}
           mask-aws-account-id: true
 
       - name: Configure kubectl
         run: |
           aws eks update-kubeconfig \
             --region "${AWS_REGION}" \
-            --name "${{ vars.EKS_CLUSTER_NAME }}"
+            --name "${EKS_CLUSTER_NAME}"
 
       - name: Apply Kubernetes resources
         env:
