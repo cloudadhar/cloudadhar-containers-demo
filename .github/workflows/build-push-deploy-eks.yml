@@ -16,6 +16,7 @@ on:
         options:
           - test
           - live
+          - main
 
       deploy_to_ecs:
         description: Deploy the new image to ECS Fargate
