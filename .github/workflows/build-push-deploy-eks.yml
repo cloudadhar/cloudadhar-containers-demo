@@ -3,18 +3,11 @@ name: Build, push to ECR, and deploy to ECS or EKS
 on:
   push:
     branches:
+      - test
       - main
 
   workflow_dispatch:
     inputs:
-      target_environment:
-        description: AWS account/environment to use
-        required: true
-        default: test
-        type: choice
-        options:
-          - main
-
       deploy_to_ecs:
         description: Deploy the new image to ECS Fargate
         required: true
@@ -32,8 +25,6 @@ permissions:
   id-token: write
 
 env:
-  AWS_REGION: ap-south-1
-  ECR_REPOSITORY: cloudadhar-containers-demo
   K8S_NAMESPACE: cloudadhar
   K8S_DEPLOYMENT: cloudadhar-web
 
@@ -43,12 +34,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
+    # test branch uses test environment.
+    # main branch uses main environment.
     environment:
-      name: ${{ github.event_name == 'workflow_dispatch' && inputs.target_environment || (github.ref_name == 'main' && 'main' || 'test') }}
+      name: ${{ github.ref_name }}
 
     env:
       AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
       AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
 
     outputs:
       image_uri: ${{ steps.build.outputs.image_uri }}
@@ -60,14 +55,14 @@ jobs:
 
       - name: Validate branch and environment mapping
         env:
-          SELECTED_ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && inputs.target_environment || (github.ref_name == 'main' && 'main' || 'test') }}
+          SELECTED_ENVIRONMENT: ${{ github.ref_name }}
         run: |
           case "${GITHUB_REF_NAME}:${SELECTED_ENVIRONMENT}" in
             test:test|main:main)
               echo "Branch and environment mapping is valid."
               ;;
             *)
-              echo "::error::Use branch test with environment test, or branch main with environment main."
+              echo "::error::The GitHub environment must have the same name as branch test or main."
               exit 1
               ;;
           esac
@@ -81,6 +76,16 @@ jobs:
 
           test -n "${AWS_ACCOUNT_ID}" || {
             echo "::error::AWS_ACCOUNT_ID is not configured in the selected GitHub environment."
+            exit 1
+          }
+
+          test -n "${AWS_REGION}" || {
+            echo "::error::AWS_REGION is not configured in the selected GitHub environment."
+            exit 1
+          }
+
+          test -n "${ECR_REPOSITORY}" || {
+            echo "::error::ECR_REPOSITORY is not configured in the selected GitHub environment."
             exit 1
           }
 
@@ -124,16 +129,21 @@ jobs:
   deploy-to-ecs:
     name: Deploy image to Amazon ECS
     needs: build-and-push
+
+    # Automatically deploy test-branch pushes to ECS.
+    # For main, use Run workflow and enable deploy_to_ecs.
     if: ${{ (github.event_name == 'push' && github.ref_name == 'test') || (github.event_name == 'workflow_dispatch' && inputs.deploy_to_ecs == true) }}
+
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
     environment:
-      name: ${{ github.event_name == 'workflow_dispatch' && inputs.target_environment || 'test' }}
+      name: ${{ github.ref_name }}
 
     env:
       AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
       AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
       ECS_CLUSTER_NAME: ${{ vars.ECS_CLUSTER_NAME }}
       ECS_SERVICE_NAME: ${{ vars.ECS_SERVICE_NAME }}
       ECS_TASK_DEFINITION: ${{ vars.ECS_TASK_DEFINITION }}
@@ -148,6 +158,7 @@ jobs:
           for VARIABLE_NAME in \
             AWS_ROLE_ARN \
             AWS_ACCOUNT_ID \
+            AWS_REGION \
             ECS_CLUSTER_NAME \
             ECS_SERVICE_NAME \
             ECS_TASK_DEFINITION \
@@ -201,16 +212,20 @@ jobs:
   deploy-to-eks:
     name: Deploy image to Amazon EKS
     needs: build-and-push
+
+    # EKS deployment is manual.
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_to_eks == true }}
+
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
     environment:
-      name: ${{ inputs.target_environment }}
+      name: ${{ github.ref_name }}
 
     env:
       AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
       AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
       EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
 
     steps:
@@ -219,7 +234,11 @@ jobs:
 
       - name: Validate EKS configuration
         run: |
-          for VARIABLE_NAME in AWS_ROLE_ARN AWS_ACCOUNT_ID EKS_CLUSTER_NAME
+          for VARIABLE_NAME in \
+            AWS_ROLE_ARN \
+            AWS_ACCOUNT_ID \
+            AWS_REGION \
+            EKS_CLUSTER_NAME
           do
             test -n "${!VARIABLE_NAME}" || {
               echo "::error::${VARIABLE_NAME} is not configured in the selected GitHub environment."
